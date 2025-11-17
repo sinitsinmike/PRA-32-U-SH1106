@@ -1,0 +1,79 @@
+--- original
++++ patched
+@@ -6,4 +6,18 @@
+ 
+ #include "hardware/i2c.h"
++// ==== SH1106/SSD1306 config (Arduino-friendly) ====
++#ifndef PRA32_U_OLED_IS_SH1106
++#define PRA32_U_OLED_IS_SH1106 1
++#endif
++// #define PRA32_U_OLED_IS_SSD1306 1
++#ifndef PRA32_U_OLED_SH1106_X_OFFSET
++#define PRA32_U_OLED_SH1106_X_OFFSET 4
++#endif
++#if defined(PRA32_U_OLED_IS_SH1106)
++  #define PRA32_U_OLED_X_OFFSET (PRA32_U_OLED_SH1106_X_OFFSET)
++#else
++  #define PRA32_U_OLED_X_OFFSET 0
++#endif
++// ================================================
+ 
+ #include <cstdio>
+@@ -555,9 +569,31 @@
+ }
+ 
+-static INLINE void PRA32_U_ControlPanel_set_draw_position(uint8_t x, uint8_t y) {
+-  uint8_t commands[] = {0x00,  static_cast<uint8_t>(0xB0 + y), 
+-                               static_cast<uint8_t>(0x10 + ((x * 6) >> 4)),
+-                               static_cast<uint8_t>(0x00 + ((x * 6) & 0x0F))};
+-  i2c_write_blocking(PRA32_U_OLED_DISPLAY_I2C, PRA32_U_OLED_DISPLAY_I2C_ADDRESS, commands, sizeof(commands), false);
++static INLINE void PRA32_U_ControlPanel_set_draw_position(uint8_t x, uint8_t y) {const uint8_t x_offset =
++#if defined(PRA32_U_OLED_IS_SH1106)
++  PRA32_U_OLED_SH1106_X_OFFSET;
++#else
++  0;
++#endif
++
++const uint8_t col = (uint8_t)(x * 6 + x_offset);
++
++#if defined(PRA32_U_OLED_IS_SH1106)
++if (x == 0 && x_offset > 0) {
++  uint8_t set0[] = {0x00, (uint8_t)(0xB0 + y), 0x10, 0x00};
++  i2c_write_blocking(PRA32_U_OLED_DISPLAY_I2C, PRA32_U_OLED_DISPLAY_I2C_ADDRESS, set0, sizeof(set0), false);
++  uint8_t zeros[1 + PRA32_U_OLED_SH1106_X_OFFSET];
++  zeros[0] = 0x40;
++  for (uint8_t i = 1; i <= PRA32_U_OLED_SH1106_X_OFFSET; ++i) zeros[i] = 0x00;
++  i2c_write_blocking(PRA32_U_OLED_DISPLAY_I2C, PRA32_U_OLED_DISPLAY_I2C_ADDRESS, zeros, sizeof(zeros), false);
++}
++#endif
++
++uint8_t commands[] = {
++  0x00,
++  (uint8_t)(0xB0 + y),
++  (uint8_t)(0x10 | ((col >> 4) & 0x0F)),
++  (uint8_t)(0x00 | (col & 0x0F))
++};
++i2c_write_blocking(PRA32_U_OLED_DISPLAY_I2C, PRA32_U_OLED_DISPLAY_I2C_ADDRESS, commands, sizeof(commands), false);
+ }
+ 
+@@ -1633,2 +1669,20 @@
+ #endif  // defined(PRA32_U_USE_DEBUG_PRINT)
+ }
++
++
++// --- Added helper: two-zero tail at line end with X_OFFSET ---
++static INLINE void PRA32_U_ControlPanel_line_tail(uint8_t y) {
++  const uint8_t x_offset =
++  #if defined(PRA32_U_OLED_IS_SH1106)
++    PRA32_U_OLED_SH1106_X_OFFSET;
++  #else
++    0;
++  #endif
++  const uint8_t col_end = (uint8_t)(x_offset + 126); // 21*6
++  uint8_t cmd[] = {0x00, (uint8_t)(0xB0 + y),
++                   (uint8_t)(0x10 | ((col_end >> 4) & 0x0F)),
++                   (uint8_t)(0x00 | (col_end & 0x0F))};
++  i2c_write_blocking(PRA32_U_OLED_DISPLAY_I2C, PRA32_U_OLED_DISPLAY_I2C_ADDRESS, cmd, sizeof(cmd), false);
++  const uint8_t tail[] = {0x40, 0x00, 0x00};
++  i2c_write_blocking(PRA32_U_OLED_DISPLAY_I2C, PRA32_U_OLED_DISPLAY_I2C_ADDRESS, tail, sizeof(tail), false);
++}
